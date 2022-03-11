@@ -1,4 +1,8 @@
-class speck:
+""" Speck implementation in python """
+
+
+class Speck:
+    """Implementation of speck in python"""
 
     def __init__(self, key: int, key_size: int = 128, block_size: int = 64) -> None:
 
@@ -20,7 +24,7 @@ class speck:
         try:
             [self.number_of_keywords, self.alpha,
                 self.number_of_rounds] = parameters[block_size][key_size]
-        except:
+        except KeyError:
             print("Invalid paramters")
             exit()
         self.beta = self.alpha - 5
@@ -31,15 +35,15 @@ class speck:
         self.key = self.key & ((2 ** self.key_size) - 1)
 
         self.keys = [self.key & self.mask]
-        l = [(self.key >> (x * self.word_size)) &
-             self.mask for x in range(1, self.number_of_keywords)]
+        _l = [(self.key >> (_x * self.word_size)) &
+              self.mask for _x in range(1, self.number_of_keywords)]
 
         for i in range(self.number_of_rounds - 1):
             l_new = (
-                ((self.keys[i] + self.right_shift(l[i], self.alpha)) & self.mask) ^ i) & self.mask
-            l.append(l_new)
+                ((self.keys[i] + self.right_shift(_l[i], self.alpha)) & self.mask) ^ i) & self.mask
+            _l.append(l_new)
             k_new = (self.left_shift(
-                self.keys[i], self.beta) ^ l[-1]) & self.mask
+                self.keys[i], self.beta) ^ _l[-1]) & self.mask
             self.keys.append(k_new)
 
     def right_shift(self, value: int, alpha: int):
@@ -66,81 +70,102 @@ class speck:
         """
         return ((value >> (self.word_size - beta)) + (value << beta)) & self.mask
 
-    def encrypt_function(self, x, y):
-        """encrypts the upper and lower words x and y
+    def encrypt_function(self, _x, _y):
+        """encrypts the upper and lower words _x and _y
 
         Args:
-            x (int): upperword
-            y (int): lowerword
+            _x (int): upperword
+            _y (int): lowerword
 
         Returns:
             (int, int): encrypted upper and lower words
         """
         for i in range(self.number_of_rounds):
-            x = ((self.right_shift(x, self.alpha) + y)
-                 & self.mask) ^ self.keys[i]
-            y = self.left_shift(y, self.beta) ^ x
-        return x, y
+            _x = ((self.right_shift(_x, self.alpha) + _y)
+                  & self.mask) ^ self.keys[i]
+            _y = self.left_shift(_y, self.beta) ^ _x
+        return _x, _y
 
-    def decrypt_function(self, x, y):
-        """decrypts the upper and lower words x and y
+    def decrypt_function(self, _x, _y):
+        """decrypts the upper and lower words _x and _y
 
         Args:
-            x (int): upperword
-            y (int): lowerword
+            _x (int): upperword
+            _y (int): lowerword
 
         Returns:
             (int, int): decrypted upper and lower words
         """
         for q in reversed(self.keys):
-            y = self.right_shift(x ^ y, self.beta)
-            x_sub = (((x ^ q) - y) + self.mask_sub) % self.mask_sub
-            x = self.left_shift(x_sub, self.alpha)
-        return x, y
+            _y = self.right_shift(_x ^ _y, self.beta)
+            x_sub = (((_x ^ q) - _y) + self.mask_sub) % self.mask_sub
+            _x = self.left_shift(x_sub, self.alpha)
+        return _x, _y
 
-    def encrypt(self, plaintext):
+    def encrypt(self, _plaintext):
+        """Encrypts plaintext using Simon
 
+        Args:
+            _plaintext (string): plaitext to encrypt
+
+        Returns:
+            List(int): encrypted message
+        """
         plaintext_binary = 0
         count = self.block_size // 32
         cipher = []
         counter = -1
 
-        for c in bytearray(plaintext, 'utf-8'):
+        for _c in bytearray(_plaintext, 'utf-8'):
 
-            plaintext_binary = (plaintext_binary << 32) + c
+            plaintext_binary = (plaintext_binary << 32) + _c
             counter += 1
 
             if counter % count == count - 1:
-                b = (plaintext_binary >> self.word_size) & self.mask
-                a = plaintext_binary & self.mask
-                b, a = self.encrypt_function(b, a)
-                cipher.append((b << self.word_size) + a)
+                _b = (plaintext_binary >> self.word_size) & self.mask
+                _a = plaintext_binary & self.mask
+                _b, _a = self.encrypt_function(_b, _a)
+                cipher.append((_b << self.word_size) + _a)
                 plaintext_binary = 0
 
         if plaintext_binary != 0:
-            b = (plaintext_binary >> self.word_size) & self.mask
-            a = plaintext_binary & self.mask
-            b, a = self.encrypt_function(b, a)
-            cipher.append((b << self.word_size) + a)
+            _b = (plaintext_binary >> self.word_size) & self.mask
+            _a = plaintext_binary & self.mask
+            _b, _a = self.encrypt_function(_b, _a)
+            cipher.append((_b << self.word_size) + _a)
             plaintext_binary = 0
 
         return cipher
 
-    def decrypt(self, ciphertext):
+    def decrypt(self, _ciphertext):
+        """Decrypts given ciphertext
 
+        Args:
+            _ciphertext (List(int)): Given cyphertext
+
+        Returns:
+            string: Decrypted message
+        """
         text = ""
 
-        for cipher in reversed(ciphertext):
+        for cipher in reversed(_ciphertext):
 
-            b = (cipher >> self.word_size) & self.mask
-            a = cipher & self.mask
-            b, a = self.decrypt_function(b, a)
-            text = self.ascii_to_string((b << self.word_size) + a) + text
+            _b = (cipher >> self.word_size) & self.mask
+            _a = cipher & self.mask
+            _b, _a = self.decrypt_function(_b, _a)
+            text = self.ascii_to_string((_b << self.word_size) + _a) + text
 
         return text
 
     def ascii_to_string(self, string_ascii):
+        """Converts ascii numbers to string
 
+        Args:
+            string_ascii (int): ascii numbers for characters concatenated together
+
+        Returns:
+            string: resultant string
+        """
         result = ""
         while string_ascii > 0:
             result = chr(string_ascii & ((2 ** 32) - 1)) + result
@@ -149,14 +174,14 @@ class speck:
 
 
 if __name__ == "__main__":
-    s = speck(10)
+    s = Speck(10)
     print(s.key)
-    plaintext = "This is a test to check if encryption and decryption are working or not"
+    plaintext = "This is _a test to check if encryption and decryption are working or not"
 
-    ciphertext = s.encrypt(plaintext)
+    _ciphertext = s.encrypt(plaintext)
 
-    print("ciphertext =", ciphertext)
+    print("_ciphertext =", _ciphertext)
 
-    plaintext = s.decrypt(ciphertext)
+    plaintext = s.decrypt(_ciphertext)
 
     print("plaintext =", plaintext)
