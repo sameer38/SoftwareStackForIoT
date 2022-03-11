@@ -21,7 +21,7 @@ shared_key = {}
 
 SERVER_CONNECT_MESSAGE += " " + str(public_key)
 
-numberOfConnectedClients = 0
+number_of_connected_clients = 0
 connectingClientsSet = set()
 sentFiles = set()
 
@@ -32,6 +32,8 @@ server.bind(ADDR)
 
 
 def lookup():
+    """ Listens to clients for incoming requests
+    """
 
     # For listening to requests from clients
     client = socket.socket(
@@ -50,14 +52,14 @@ def lookup():
     while True:
 
         data, addr = client.recvfrom(1024)
-        dataDecoded = data.decode(FORMAT)
-        dataSplit = dataDecoded.split(" ")
+        data_decoded = data.decode(FORMAT)
+        data_split = data_decoded.split(" ")
 
-        if dataSplit[0] == CONNECT_MESSAGE:
+        if data_split[0] == CONNECT_MESSAGE:
             connectingClientsSet.add(addr)
             print(f"[INFO] {addr[0]} wants to connect")
             shared_key[addr[0]] = diffie_hellman.gen_shared_key(
-                int(dataSplit[1]))
+                int(data_split[1]))
             server.sendto(SERVER_CONNECT_MESSAGE.encode(
                 FORMAT), ('<broadcast>', 37030))
 
@@ -65,36 +67,46 @@ def lookup():
             connectingClientsSet.remove(addr)
 
 
-def sendFile(conn, fileName, saveFileName):
+def send_file(conn, file_name, save_file_name):
+    """Sends file to the client
 
-    conn.send(saveFileName.encode(FORMAT))
-    f = open(fileName, "rb")
-    l = f.read(1024)
-    while (l):
-        conn.send(l)
-        l = f.read(1024)
+    Args:
+        conn (): connection to the client
+        file_name (string): name of file to send
+        save_file_name (string): name of the file to be saved as
+    """
+    conn.send(save_file_name.encode(FORMAT))
+    _f = open(file_name, "rb")
+    _l = _f.read(1024)
+    while (_l):
+        conn.send(_l)
+        _l = _f.read(1024)
 
-    f.close()
+    _f.close()
     time.sleep(0.5)
     conn.send(EOF.encode(FORMAT))
 
-# handles the connected clients
-
 
 def handle_client(conn, addr):
-    global numberOfConnectedClients
+    """Handles the connected clients
+
+    Args:
+        conn : connection to the client
+        addr : addr of the connected client
+    """
+    global number_of_connected_clients
 
     print(shared_key)
     print(f"[NEW CONNECTION] {addr} connected.")
-    numberOfConnectedClients += 1
+    number_of_connected_clients += 1
     removal = True
 
     time.sleep(1)
     if addr[0] not in sentFiles:
         removal = False
-        sendFile(conn, "Demo/randNum.py", "randNum.py")
+        send_file(conn, "Demo/randNum.py", "randNum.py")
         time.sleep(1)
-        sendFile(conn, "Demo/startScript.sh", "b.sh")
+        send_file(conn, "Demo/startScript.sh", "b.sh")
         sentFiles.add(addr[0])
 
     connected = True
@@ -103,7 +115,7 @@ def handle_client(conn, addr):
         if msg == DISCONNECT_MESSAGE:
             if removal:
                 sentFiles.remove(addr[0])
-            numberOfConnectedClients -= 1
+            number_of_connected_clients -= 1
             connected = False
         if msg == "":
             print("[Error] Connection Closed")
@@ -114,9 +126,10 @@ def handle_client(conn, addr):
 
 
 def start():
-
-    lookupThread = threading.Thread(target=lookup)
-    lookupThread.start()
+    """Starts the server
+    """
+    lookup_thread = threading.Thread(target=lookup)
+    lookup_thread.start()
 
     server.listen()
     print(f"[LISTENING] Server is listening on {SERVER}")
@@ -124,7 +137,7 @@ def start():
         conn, addr = server.accept()
         thread = threading.Thread(target=handle_client, args=(conn, addr))
         thread.start()
-        print(f"[ACTIVE CONNECTIONS] {numberOfConnectedClients}")
+        print(f"[ACTIVE CONNECTIONS] {number_of_connected_clients}")
 
 
 print("[STARTING] server is starting...")

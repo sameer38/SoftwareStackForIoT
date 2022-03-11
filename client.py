@@ -12,24 +12,51 @@ CONNECTED_MESSAGE = "!CONNECTED"
 SERVER_CONNECT_MESSAGE = "!SERVER_CONNECT"
 EOF = "!EOF"
 
-client = None
-shared_key = None
+CLIENT = None
+SHARED_KEY = None
 
 
-def saveFile():
+def connect():
+    """Connects to the server
+    """
+    main(False)
 
-    fileName = client.recv(1024).decode(FORMAT)
-    programFile = open(fileName, "wb")
+
+def send(msg):
+    """sends data to the server
+
+    Args:
+        msg (string): data to send
+    """
+    message = msg.encode(FORMAT)
+    CLIENT.send(message)
+
+
+def save_file():
+    """Saves file from server
+
+    Returns:
+        string: name of the saved file_
+    """
+
+    file_name = CLIENT.recv(1024).decode(FORMAT)
+    program_file = open(file_name, "wb")
     while True:
-        programContent = client.recv(1024)
-        if programContent.decode(FORMAT) == EOF:
+        program_content = CLIENT.recv(1024)
+        if program_content.decode(FORMAT) == EOF:
             break
-        programFile.write(programContent)
-    programFile.close()
-    return fileName
+        program_file.write(program_content)
+    program_file.close()
+    return file_name
 
 
 def main(flag=True):
+    """ Connects to the server
+
+    Args:
+        flag (bool, optional): Flag to recevice files from server or not. Defaults to True.
+    """
+    global SHARED_KEY, CLIENT
 
     # For sending connect requests to server
     server = socket.socket(
@@ -39,23 +66,21 @@ def main(flag=True):
     server.settimeout(1)
 
     # For listening for replies from server
-    serverListener = socket.socket(
+    server_listener = socket.socket(
         socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    serverListener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    serverListener.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    serverListener.bind(("", 37030))
-    serverListener.settimeout(1)
+    server_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server_listener.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+    server_listener.bind(("", 37030))
+    server_listener.settimeout(1)
 
     diffie_hellman = pyDH.DiffieHellman()
 
     public_key = diffie_hellman.gen_public_key()
 
-    global CONNECT_MESSAGE
-    CONNECT_MESSAGE = CONNECT_MESSAGE + " " + str(public_key)
+    connect_message = CONNECT_MESSAGE + " " + str(public_key)
 
     tries = 0
     while True:
-        global client, shared_key
         tries += 1
 
         if tries > 10:
@@ -63,54 +88,43 @@ def main(flag=True):
             exit()
 
         # Sending request to server for connection
-        server.sendto(CONNECT_MESSAGE.encode(FORMAT), ('<broadcast>', 37020))
+        server.sendto(connect_message.encode(FORMAT), ('<broadcast>', 37020))
         print("[CONNECTING] Sending request to connect")
 
         # waiting for server to reply
         try:
-            data, addr = serverListener.recvfrom(1024)
+            data, addr = server_listener.recvfrom(1024)
         except socket.timeout:
             continue
 
-        dataDecoded = data.decode(FORMAT)
-        dataSplit = dataDecoded.split(" ")
+        data_decoded = data.decode(FORMAT)
+        data_split = data_decoded.split(" ")
 
-        if dataSplit[0] == SERVER_CONNECT_MESSAGE:
+        if data_split[0] == SERVER_CONNECT_MESSAGE:
 
-            shared_key = diffie_hellman.gen_shared_key(int(dataSplit[1]))
-            print(shared_key)
+            SHARED_KEY = diffie_hellman.gen_shared_key(int(data_split[1]))
+            print(SHARED_KEY)
 
             print("[CONNECTION] Received reply from :", addr[0])
 
-            ADDR = (addr[0], PORT)
+            server_addr = (addr[0], PORT)
 
-            client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            client.connect(ADDR)
+            CLIENT = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            CLIENT.connect(server_addr)
             print("[CONNECTED] Connected to server :", addr[0])
             server.sendto(CONNECTED_MESSAGE.encode(
                 FORMAT), ('<broadcast>', 37020))
 
             if flag:
-                saveFile()
-                setupFile = saveFile()
-                client.send(DISCONNECT_MESSAGE.encode(FORMAT))
-                client.close()
-                os.chmod(setupFile, 0o755)
-                rc = call("./" + setupFile, shell=True)
+                save_file()
+                setup_file = save_file()
+                CLIENT.send(DISCONNECT_MESSAGE.encode(FORMAT))
+                CLIENT.close()
+                os.chmod(setup_file, 0o755)
+                call("./" + setup_file, shell=True)
 
             break
 
 
 if __name__ == "__main__":
     main()
-
-
-def connect():
-    main(False)
-
-# Send message to server
-
-
-def send(msg):
-    message = msg.encode(FORMAT)
-    client.send(message)
