@@ -1,6 +1,7 @@
 import os
 import socket
 from subprocess import call
+import pyDH
 
 HEADER = 64
 PORT = 37040
@@ -12,6 +13,8 @@ SERVER_CONNECT_MESSAGE = "!SERVER_CONNECT"
 EOF = "!EOF"
 
 client = None
+shared_key = None
+
 
 def saveFile():
 
@@ -25,24 +28,34 @@ def saveFile():
     programFile.close()
     return fileName
 
-def main(flag = True):
+
+def main(flag=True):
 
     # For sending connect requests to server
-    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    server = socket.socket(
+        socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     server.settimeout(1)
 
     # For listening for replies from server
-    serverListener = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    serverListener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+    serverListener = socket.socket(
+        socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    serverListener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     serverListener.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     serverListener.bind(("", 37030))
     serverListener.settimeout(1)
 
+    diffie_hellman = pyDH.DiffieHellman()
+
+    public_key = diffie_hellman.gen_public_key()
+
+    global CONNECT_MESSAGE
+    CONNECT_MESSAGE = CONNECT_MESSAGE + " " + str(public_key)
+
     tries = 0
     while True:
-        global client
+        global client, shared_key
         tries += 1
 
         if tries > 10:
@@ -59,7 +72,13 @@ def main(flag = True):
         except socket.timeout:
             continue
 
-        if data.decode(FORMAT) == SERVER_CONNECT_MESSAGE:
+        dataDecoded = data.decode(FORMAT)
+        dataSplit = dataDecoded.split(" ")
+
+        if dataSplit[0] == SERVER_CONNECT_MESSAGE:
+
+            shared_key = diffie_hellman.gen_shared_key(int(dataSplit[1]))
+            print(shared_key)
 
             print("[CONNECTION] Received reply from :", addr[0])
 
@@ -68,7 +87,8 @@ def main(flag = True):
             client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             client.connect(ADDR)
             print("[CONNECTED] Connected to server :", addr[0])
-            server.sendto(CONNECTED_MESSAGE.encode(FORMAT), ('<broadcast>', 37020))
+            server.sendto(CONNECTED_MESSAGE.encode(
+                FORMAT), ('<broadcast>', 37020))
 
             if flag:
                 saveFile()
@@ -80,13 +100,17 @@ def main(flag = True):
 
             break
 
+
 if __name__ == "__main__":
     main()
+
 
 def connect():
     main(False)
 
 # Send message to server
+
+
 def send(msg):
     message = msg.encode(FORMAT)
     client.send(message)
