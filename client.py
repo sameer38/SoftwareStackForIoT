@@ -2,6 +2,8 @@ import os
 import socket
 from subprocess import call
 import pyDH
+import speck
+import time
 
 HEADER = 64
 PORT = 37040
@@ -14,6 +16,8 @@ EOF = "!EOF"
 
 CLIENT = None
 SHARED_KEY = None
+KEY = None
+SPECK = None
 
 
 def connect():
@@ -28,8 +32,12 @@ def send(msg):
     Args:
         msg (string): data to send
     """
-    message = msg.encode(FORMAT)
+    message = ""
+    for x in SPECK.encrypt(msg):
+        message += str(x) + ","
+    message = message.encode(FORMAT)
     CLIENT.send(message)
+    time.sleep(1)
 
 
 def save_file():
@@ -56,7 +64,7 @@ def main(flag=True):
     Args:
         flag (bool, optional): Flag to recevice files from server or not. Defaults to True.
     """
-    global SHARED_KEY, CLIENT
+    global SHARED_KEY, KEY, CLIENT, SPECK
 
     # For sending connect requests to server
     server = socket.socket(
@@ -104,6 +112,9 @@ def main(flag=True):
 
             SHARED_KEY = diffie_hellman.gen_shared_key(int(data_split[1]))
             print(SHARED_KEY)
+            KEY = int(SHARED_KEY, 16) & ((2 ** 128) - 1)
+            print(KEY)
+            SPECK = speck.Speck(KEY)
 
             print("[CONNECTION] Received reply from :", addr[0])
 
@@ -114,6 +125,11 @@ def main(flag=True):
             print("[CONNECTED] Connected to server :", addr[0])
             server.sendto(CONNECTED_MESSAGE.encode(
                 FORMAT), ('<broadcast>', 37020))
+
+            send("Hello")
+            send("HI")
+            send("sadfasdfasf")
+            send(DISCONNECT_MESSAGE)
 
             if flag:
                 save_file()

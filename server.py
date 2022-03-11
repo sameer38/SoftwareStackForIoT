@@ -2,6 +2,7 @@ import socket
 import threading
 import time
 import pyDH
+import speck
 
 HEADER = 64
 PORT = 37040
@@ -97,6 +98,10 @@ def handle_client(conn, addr):
     global number_of_connected_clients
 
     print(shared_key)
+    key = int(shared_key[addr[0]], 16) & ((2 ** 128) - 1)
+    print(key)
+    speck_obj = speck.Speck(key)
+
     print(f"[NEW CONNECTION] {addr} connected.")
     number_of_connected_clients += 1
     removal = True
@@ -111,7 +116,12 @@ def handle_client(conn, addr):
 
     connected = True
     while connected:
-        msg = conn.recv(1024).decode(FORMAT)
+        encrypted_message = conn.recv(1024)
+        encrypted_message = encrypted_message.decode(FORMAT)
+        lst = encrypted_message.split(",")
+        msg = [int(x) for x in lst if x != '']
+        msg = speck_obj.decrypt(msg)
+
         if msg == DISCONNECT_MESSAGE:
             if removal:
                 sentFiles.remove(addr[0])
