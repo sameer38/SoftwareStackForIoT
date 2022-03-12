@@ -1,10 +1,10 @@
 import socket
 import threading
-import time
 import pyDH
 import speck
+import json
 
-HEADER = 64
+HEADER = 32
 PORT = 37040
 SERVER = ""
 ADDR = (SERVER, PORT)
@@ -68,7 +68,20 @@ def lookup():
             connectingClientsSet.remove(addr)
 
 
-def send_file(conn, file_name, save_file_name):
+def send(conn, message, speck):
+    """sends data to the server
+
+    Args:
+        msg (string): data to send
+    """
+    message = speck.encrypt(message)
+    message = json.dumps(message)
+    message = f'{len(message):<{HEADER}}' + message
+    message = message.encode(FORMAT)
+    conn.send(message)
+
+
+def send_file(conn, file_name, save_file_name, speck):
     """Sends file to the client
 
     Args:
@@ -76,16 +89,15 @@ def send_file(conn, file_name, save_file_name):
         file_name (string): name of file to send
         save_file_name (string): name of the file to be saved as
     """
-    conn.send(save_file_name.encode(FORMAT))
-    _f = open(file_name, "rb")
+    send(conn, save_file_name, speck)
+    _f = open(file_name, "r")
     _l = _f.read(1024)
     while (_l):
-        conn.send(_l)
+        send(conn, _l, speck)
         _l = _f.read(1024)
 
     _f.close()
-    time.sleep(0.5)
-    conn.send(EOF.encode(FORMAT))
+    send(conn, EOF, speck)
 
 
 def handle_client(conn, addr):
@@ -97,40 +109,48 @@ def handle_client(conn, addr):
     """
     global number_of_connected_clients
 
-    print(shared_key)
     key = int(shared_key[addr[0]], 16) & ((2 ** 128) - 1)
-    print(key)
     speck_obj = speck.Speck(key)
 
     print(f"[NEW CONNECTION] {addr} connected.")
     number_of_connected_clients += 1
     removal = True
 
-    time.sleep(1)
     if addr[0] not in sentFiles:
         removal = False
-        send_file(conn, "Demo/randNum.py", "randNum.py")
-        time.sleep(1)
-        send_file(conn, "Demo/startScript.sh", "b.sh")
+        send(conn, "2", speck_obj)
+        send_file(conn, "Demo/randNum.py", "randNum.py", speck_obj)
+        send_file(conn, "Demo/startScript.sh", "b.sh", speck_obj)
         sentFiles.add(addr[0])
 
     connected = True
+    new_message = True
+    msg = ''
+    encrypted_message = ''
     while connected:
-        encrypted_message = conn.recv(1024)
-        encrypted_message = encrypted_message.decode(FORMAT)
-        lst = encrypted_message.split(",")
-        msg = [int(x) for x in lst if x != '']
-        msg = speck_obj.decrypt(msg)
-
-        if msg == DISCONNECT_MESSAGE:
-            if removal:
-                sentFiles.remove(addr[0])
-            number_of_connected_clients -= 1
-            connected = False
-        if msg == "":
-            print("[Error] Connection Closed")
+        received_message = conn.recv(1024)
+        encrypted_message += received_message.decode(FORMAT)
+        if not encrypted_message:
             break
-        print(f"[{addr}] {msg}")
+        if new_message:
+            msg_length = int(encrypted_message[:HEADER])
+        if len(encrypted_message[HEADER:]) >= msg_length:
+            current_message = encrypted_message[HEADER: HEADER + msg_length]
+            encrypted_message = encrypted_message[HEADER + msg_length:]
+            new_message = True
+            msg = json.loads(current_message)
+            msg = speck_obj.decrypt(msg)
+            if msg == DISCONNECT_MESSAGE:
+                if removal:
+                    sentFiles.remove(addr[0])
+                number_of_connected_clients -= 1
+                connected = False
+            if msg == "":
+                print("[Error] Connection Closed")
+                break
+            print(f"[{addr}] {msg}")
+        else:
+            new_message = False
 
     conn.close()
 

@@ -3,9 +3,9 @@ import socket
 from subprocess import call
 import pyDH
 import speck
-import time
+import json
 
-HEADER = 64
+HEADER = 32
 PORT = 37040
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
@@ -32,12 +32,11 @@ def send(msg):
     Args:
         msg (string): data to send
     """
-    message = ""
-    for x in SPECK.encrypt(msg):
-        message += str(x) + ","
+    message = SPECK.encrypt(msg)
+    message = json.dumps(message)
+    message = f'{len(message):<{HEADER}}' + message
     message = message.encode(FORMAT)
     CLIENT.send(message)
-    time.sleep(1)
 
 
 def save_file():
@@ -47,14 +46,53 @@ def save_file():
         string: name of the saved file_
     """
 
-    file_name = CLIENT.recv(1024).decode(FORMAT)
-    program_file = open(file_name, "wb")
+    encrypted_message = ''
+    msg = ''
+    file_name = ''
+    new_file = True
+    files = 0
+
+    received_message = CLIENT.recv(1024)
+    encrypted_message += received_message.decode(FORMAT)
+    msg_length = int(encrypted_message[:HEADER])
+    total_number_of_files = encrypted_message[HEADER: HEADER + msg_length]
+    total_number_of_files = json.loads(total_number_of_files)
+    total_number_of_files = int(SPECK.decrypt(total_number_of_files))
+    encrypted_message = encrypted_message[HEADER + msg_length:]
+
     while True:
-        program_content = CLIENT.recv(1024)
-        if program_content.decode(FORMAT) == EOF:
+        if files == total_number_of_files:
             break
-        program_file.write(program_content)
-    program_file.close()
+        received_message = CLIENT.recv(1024)
+        if not received_message:
+            break
+        encrypted_message += received_message.decode(FORMAT)
+        if not encrypted_message:
+            break
+        while True:
+            if not encrypted_message:
+                break
+            msg_length = int(encrypted_message[:HEADER])
+
+            if len(encrypted_message[HEADER:]) >= msg_length:
+                current_message = encrypted_message[HEADER: HEADER + msg_length]
+                encrypted_message = encrypted_message[HEADER + msg_length:]
+                msg = json.loads(current_message)
+                msg = SPECK.decrypt(msg)
+                if new_file:
+                    file_name = msg
+                    program_file = open(msg, "w")
+                    new_file = False
+                elif msg != EOF:
+                    program_file.write(msg)
+                if msg == EOF:
+                    new_file = True
+                    files += 1
+                    program_file.close()
+
+            else:
+                break
+
     return file_name
 
 
@@ -111,9 +149,7 @@ def main(flag=True):
         if data_split[0] == SERVER_CONNECT_MESSAGE:
 
             SHARED_KEY = diffie_hellman.gen_shared_key(int(data_split[1]))
-            print(SHARED_KEY)
             KEY = int(SHARED_KEY, 16) & ((2 ** 128) - 1)
-            print(KEY)
             SPECK = speck.Speck(KEY)
 
             print("[CONNECTION] Received reply from :", addr[0])
@@ -126,15 +162,9 @@ def main(flag=True):
             server.sendto(CONNECTED_MESSAGE.encode(
                 FORMAT), ('<broadcast>', 37020))
 
-            send("Hello")
-            send("HI")
-            send("sadfasdfasf")
-            send(DISCONNECT_MESSAGE)
-
             if flag:
-                save_file()
                 setup_file = save_file()
-                CLIENT.send(DISCONNECT_MESSAGE.encode(FORMAT))
+                send(DISCONNECT_MESSAGE)
                 CLIENT.close()
                 os.chmod(setup_file, 0o755)
                 call("./" + setup_file, shell=True)
