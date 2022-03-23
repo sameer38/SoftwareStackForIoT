@@ -4,9 +4,24 @@ import pyDH
 import speck
 import json
 
+
+def extract_ip():
+    st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        st.connect(('10.255.255.255', 1))
+        IP = st.getsockname()[0]
+    except Exception:
+        IP = '127.0.0.1'
+    finally:
+        st.close()
+    return IP
+
+
+SERVER = extract_ip()
+# SERVER = "10.42.0.1"
+
 HEADER = 32
 PORT = 37040
-SERVER = ""
 ADDR = (SERVER, PORT)
 FORMAT = 'utf-8'
 DISCONNECT_MESSAGE = "!DISCONNECT"
@@ -15,6 +30,7 @@ CONNECT_SECOND_MESSAGE = "!CONNECT_SECOND"
 CONNECTED_MESSAGE = "!CONNECTED"
 SERVER_CONNECT_MESSAGE = "!SERVER_CONNECT"
 EOF = "!EOF"
+
 
 diffie_hellman = pyDH.DiffieHellman()
 public_key = diffie_hellman.gen_public_key()
@@ -63,6 +79,8 @@ def lookup():
                 int(data_split[1]))
             server.sendto(SERVER_CONNECT_MESSAGE.encode(
                 FORMAT), ('<broadcast>', 37030))
+            # server.sendto(SERVER_CONNECT_MESSAGE.encode(
+            #     FORMAT), ('10.42.0.0', 37030))
 
         elif data.decode(FORMAT) == CONNECTED_MESSAGE:
             connectingClientsSet.remove(addr)
