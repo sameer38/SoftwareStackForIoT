@@ -3,44 +3,47 @@ import threading
 import pyDH
 import speck
 import json
+import base64
 
 
 def extract_ip():
     st = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
-        st.connect(('10.255.255.255', 1))
+        st.connect(("10.255.255.255", 1))
         IP = st.getsockname()[0]
     except Exception:
-        IP = '127.0.0.1'
+        IP = "127.0.0.1"
     finally:
         st.close()
     return IP
 
 
+# SERVER = ""
 SERVER = extract_ip()
 # SERVER = "10.42.0.1"
 
 HEADER = 32
 PORT = 37040
 ADDR = (SERVER, PORT)
-FORMAT = 'utf-8'
+FORMAT = "utf-8"
 DISCONNECT_MESSAGE = "!DISCONNECT"
 CONNECT_MESSAGE = "!CONNECT"
 CONNECT_SECOND_MESSAGE = "!CONNECT_SECOND"
 CONNECTED_MESSAGE = "!CONNECTED"
 SERVER_CONNECT_MESSAGE = "!SERVER_CONNECT"
 EOF = "!EOF"
+MESSAGE_TYPE = "!DATA"
+FILE_TYPE = "!FILE"
 
 
 diffie_hellman = pyDH.DiffieHellman()
 public_key = diffie_hellman.gen_public_key()
 shared_key = {}
 
-SERVER_CONNECT_MESSAGE += " " + str(public_key)
+server_connect_message = {"type": SERVER_CONNECT_MESSAGE, "public_key": public_key}
+server_connect_message = json.dumps(server_connect_message)
 
-number_of_connected_clients = 0
-connectingClientsSet = set()
-sentFiles = set()
+send_files_set = set()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 server.bind(ADDR)
@@ -49,19 +52,16 @@ server.bind(ADDR)
 
 
 def lookup():
-    """ Listens to clients for incoming requests
-    """
+    """Listens to clients for incoming requests"""
 
     # For listening to requests from clients
-    client = socket.socket(
-        socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    client = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     client.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     client.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     client.bind(("", 37020))
 
     # For sending replies to clients
-    server = socket.socket(
-        socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+    server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
     server.settimeout(1)
@@ -69,113 +69,150 @@ def lookup():
     while True:
 
         data, addr = client.recvfrom(1024)
-        data_decoded = data.decode(FORMAT)
-        data_split = data_decoded.split(" ")
+        if not data:
+            continue
 
-        if data_split[0] == CONNECT_MESSAGE:
-            connectingClientsSet.add(addr)
+        data = data.decode(FORMAT)
+        data = json.loads(data)
+        type = data["type"]
+
+        if type == CONNECT_MESSAGE:
             print(f"[INFO] {addr[0]} wants to connect")
-            shared_key[addr[0]] = diffie_hellman.gen_shared_key(
-                int(data_split[1]))
-            server.sendto(SERVER_CONNECT_MESSAGE.encode(
-                FORMAT), ('<broadcast>', 37030))
-            # server.sendto(SERVER_CONNECT_MESSAGE.encode(
-            #     FORMAT), ('10.42.0.0', 37030))
+            public_key = data["public_key"]
+            receive_files = data["receive_files"]
+            if receive_files:
+                send_files_set.add(addr[0])
+            shared_key[addr[0]] = diffie_hellman.gen_shared_key(int(public_key))
+            server.sendto(server_connect_message.encode(FORMAT), (addr[0], 37030))
 
-        elif data.decode(FORMAT) == CONNECTED_MESSAGE:
-            connectingClientsSet.remove(addr)
+        elif type == CONNECTED_MESSAGE:
+            continue
 
 
-def send(conn, message, speck):
-    """sends data to the server
+def handle_file(current_payload):
+    """Saves file from server
+
+    Returns:
+        string: name of the saved file
+    """
+
+    file = open(current_payload["file"], "wb")
+    contents = current_payload["data"]
+    contents = contents.encode("utf-8")
+    contents = base64.b64decode(contents)
+    file.write(contents)
+    file.close()
+
+    return current_payload["file"]
+
+
+def send(connection_socket, data, speck):
+    """sends data to the client
 
     Args:
         msg (string): data to send
     """
-    message = speck.encrypt(message)
-    message = json.dumps(message)
-    message = f'{len(message):<{HEADER}}' + message
-    message = message.encode(FORMAT)
-    conn.send(message)
+    payload = {"type": MESSAGE_TYPE, "data": data}
+    payload = json.dumps(payload)
+    payload = speck.encrypt(payload)
+    payload = f"{len(payload):<{HEADER}}" + payload
+    payload = payload.encode(FORMAT)
+    connection_socket.send(payload)
 
 
-def send_file(conn, file_name, save_file_name, speck):
-    """Sends file to the client
+def send_file(connection_socket, file_name, save_file_name, speck, script, end=True):
+    """_summary_
 
     Args:
-        conn (): connection to the client
-        file_name (string): name of file to send
-        save_file_name (string): name of the file to be saved as
+        connection_socket (_type_): _description_
+        file_name (_type_): _description_
+        save_file_name (_type_): _description_
+        speck (_type_): _description_
+        script (_type_): _description_
+        end (bool, optional): _description_. Defaults to True.
     """
-    send(conn, save_file_name, speck)
-    _f = open(file_name, "r")
-    _l = _f.read(1024)
-    while (_l):
-        send(conn, _l, speck)
-        _l = _f.read(1024)
+    payload = {"type": FILE_TYPE, "file": save_file_name, "end": end, "script": script}
+    file = open(file_name, "r")
+    contents = file.read()
+    payload["data"] = contents
+    file.close()
+    payload = json.dumps(payload)
+    payload = speck.encrypt(payload)
+    payload = json.dumps(payload)
+    payload = f"{len(payload):<{HEADER}}" + payload
+    payload = payload.encode(FORMAT)
+    connection_socket.send(payload)
 
-    _f.close()
-    send(conn, EOF, speck)
+
+def receive_data():
+    pass
 
 
-def handle_client(conn, addr):
+def handle_client(connection_socket, addr):
     """Handles the connected clients
 
     Args:
         conn : connection to the client
         addr : addr of the connected client
     """
-    global number_of_connected_clients
-
-    key = int(shared_key[addr[0]], 16) & ((2 ** 128) - 1)
+    key = int(shared_key[addr[0]], 16) & ((2**128) - 1)
     speck_obj = speck.Speck(key)
 
     print(f"[NEW CONNECTION] {addr} connected.")
-    number_of_connected_clients += 1
-    removal = True
 
-    if addr[0] not in sentFiles:
-        removal = False
-        send(conn, "2", speck_obj)
-        send_file(conn, "Demo/randNum.py", "randNum.py", speck_obj)
-        send_file(conn, "Demo/startScript.sh", "b.sh", speck_obj)
-        sentFiles.add(addr[0])
+    if addr[0] in send_files_set:
+        send_file(connection_socket, "Demo/cam.py", "cam.py", speck_obj, False, False)
+        send_file(
+            connection_socket,
+            "Demo/startScript.sh",
+            "start_script.sh",
+            speck_obj,
+            True,
+            True,
+        )
+        send_files_set.remove(addr[0])
 
-    connected = True
-    new_message = True
-    msg = ''
-    encrypted_message = ''
-    while connected:
-        received_message = conn.recv(1024)
-        encrypted_message += received_message.decode(FORMAT)
-        if not encrypted_message:
-            break
-        if new_message:
-            msg_length = int(encrypted_message[:HEADER])
-        if len(encrypted_message[HEADER:]) >= msg_length:
-            current_message = encrypted_message[HEADER: HEADER + msg_length]
-            encrypted_message = encrypted_message[HEADER + msg_length:]
-            new_message = True
-            msg = json.loads(current_message)
-            msg = speck_obj.decrypt(msg)
-            if msg == DISCONNECT_MESSAGE:
-                if removal:
-                    sentFiles.remove(addr[0])
-                number_of_connected_clients -= 1
-                connected = False
-            if msg == "":
-                print("[Error] Connection Closed")
+    payload_length = 0
+    payload = ""
+    try:
+        while True:
+            payload_next = connection_socket.recv(1024)
+
+            if (not payload) and (not payload_next):
+                print("[Info] Connection Closed")
+                connection_socket.close()
                 break
-            print(f"[{addr}] {msg}")
-        else:
-            new_message = False
 
-    conn.close()
+            payload += payload_next.decode(FORMAT)
+            payload_length = int(payload[:HEADER])
+            payload = payload[HEADER:]
+
+            while len(payload) < payload_length:
+                payload_next = connection_socket.recv(1024)
+                payload += payload_next.decode(FORMAT)
+
+            current_payload = payload[:payload_length]
+            payload = payload[payload_length:]
+            current_payload = json.loads(current_payload)
+            current_payload = speck_obj.decrypt(current_payload)
+            current_payload = json.loads(current_payload)
+            type = current_payload["type"]
+
+            if type == MESSAGE_TYPE:
+                if current_payload["data"] == DISCONNECT_MESSAGE:
+                    print(f"[{addr}] Disconnected")
+                    break
+                print(f"[{addr}] {current_payload['data']}")
+            elif type == FILE_TYPE:
+                handle_file(current_payload)
+    except Exception as e:
+        print(e)
+    connection_socket.close()
+    # print("here")
 
 
 def start():
-    """Starts the server
-    """
+    """Starts the server"""
     lookup_thread = threading.Thread(target=lookup)
     lookup_thread.start()
 
@@ -185,7 +222,7 @@ def start():
         conn, addr = server.accept()
         thread = threading.Thread(target=handle_client, args=(conn, addr))
         thread.start()
-        print(f"[ACTIVE CONNECTIONS] {number_of_connected_clients}")
+        # print(f"[ACTIVE CONNECTIONS] {number_of_connected_clients}")
 
 
 print("[STARTING] server is starting...")

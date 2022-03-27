@@ -4,173 +4,173 @@ from subprocess import call
 import pyDH
 import speck
 import json
-
-HEADER = 32
-PORT = 37040
-FORMAT = 'utf-8'
-DISCONNECT_MESSAGE = "!DISCONNECT"
-CONNECT_MESSAGE = "!CONNECT"
-CONNECTED_MESSAGE = "!CONNECTED"
-SERVER_CONNECT_MESSAGE = "!SERVER_CONNECT"
-EOF = "!EOF"
-
-CLIENT = None
-SHARED_KEY = None
-KEY = None
-SPECK = None
+import base64
 
 
-def connect():
-    """Connects to the server
-    """
-    main(False)
+class client:
 
+    HEADER = 32
+    PORT = 37040
+    FORMAT = "utf-8"
+    DISCONNECT_MESSAGE = "!DISCONNECT"
+    CONNECT_MESSAGE = "!CONNECT"
+    CONNECTED_MESSAGE = "!CONNECTED"
+    SERVER_CONNECT_MESSAGE = "!SERVER_CONNECT"
+    MESSAGE_TYPE = "!DATA"
+    FILE_TYPE = "!FILE"
+    EOF = "!EOF"
 
-def send(msg):
-    """sends data to the server
+    def connect(self, receive_files=False):
+        """Connects to the server"""
+        self.main(receive_files)
 
-    Args:
-        msg (string): data to send
-    """
-    message = SPECK.encrypt(msg)
-    message = json.dumps(message)
-    message = f'{len(message):<{HEADER}}' + message
-    message = message.encode(FORMAT)
-    CLIENT.send(message)
+    def send_data(self, payload):
+        payload = json.dumps(payload)
+        payload = self.speck.encrypt(payload)
+        payload = json.dumps(payload)
+        payload = f"{len(payload):<{self.HEADER}}" + payload
+        payload = payload.encode(self.FORMAT)
+        self.connection_socket.send(payload)
 
+    def send(self, data):
+        """sends data to the server
 
-def save_file():
-    """Saves file from server
+        Args:
+            msg (string): data to send
+        """
+        payload = {"type": self.MESSAGE_TYPE, "data": data}
+        self.send_data(payload)
 
-    Returns:
-        string: name of the saved file_
-    """
+    def send_file(self, file_path, file_name):
+        """sends file to the server
 
-    encrypted_message = ''
-    msg = ''
-    file_name = ''
-    new_file = True
-    files = 0
+        Args:
+            file_path (string): path of file to send
+            file_name (string): name of the file
+        """
+        payload = {"type": self.FILE_TYPE, "file": file_name}
+        file = open(file_path, "rb")
+        contents = file.read()
+        payload["data"] = base64.b64encode(contents).decode("utf-8")
+        file.close()
+        self.send_data(payload)
 
-    received_message = CLIENT.recv(1024)
-    encrypted_message += received_message.decode(FORMAT)
-    msg_length = int(encrypted_message[:HEADER])
-    total_number_of_files = encrypted_message[HEADER: HEADER + msg_length]
-    total_number_of_files = json.loads(total_number_of_files)
-    total_number_of_files = int(SPECK.decrypt(total_number_of_files))
-    encrypted_message = encrypted_message[HEADER + msg_length:]
+    def handle_file(self):
+        """Saves file from server
 
-    while True:
-        if files == total_number_of_files:
-            break
-        received_message = CLIENT.recv(1024)
-        if not received_message:
-            break
-        encrypted_message += received_message.decode(FORMAT)
-        if not encrypted_message:
-            break
+        Returns:
+            string: name of the saved file
+        """
+
+        end = False
+        payload = ""
+        file_name = ""
+
+        while not end:
+
+            payload_next = self.connection_socket.recv(1024)
+            payload += payload_next.decode(self.FORMAT)
+            payload_length = int(payload[: self.HEADER])
+            payload = payload[self.HEADER :]
+
+            while len(payload) < payload_length:
+                payload_next = self.connection_socket.recv(1024)
+                payload += payload_next.decode(self.FORMAT)
+
+            current_payload = payload[:payload_length]
+            payload = payload[payload_length:]
+            current_payload = json.loads(current_payload)
+            current_payload = self.speck.decrypt(current_payload)
+            current_payload = json.loads(current_payload)
+            end = current_payload["end"]
+            file = current_payload["file"]
+            contents = current_payload["data"]
+
+            if current_payload["script"]:
+                file_name = file
+
+            file = open(file, "w")
+            file.write(contents)
+            file.close()
+
+        return file_name
+
+    def __init__(self, receive_files=False):
+
+        server = socket.socket(socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        server.settimeout(1)
+
+        # For listening for replies from server
+        server_listener = socket.socket(
+            socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP
+        )
+        server_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        server_listener.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
+        server_listener.bind(("", 37030))
+        server_listener.settimeout(1)
+
+        diffie_hellman = pyDH.DiffieHellman()
+
+        public_key = diffie_hellman.gen_public_key()
+
+        payload = {
+            "type": self.CONNECT_MESSAGE,
+            "public_key": public_key,
+            "receive_files": receive_files,
+        }
+        payload = json.dumps(payload)
+        payload = payload.encode(self.FORMAT)
+
         while True:
-            if not encrypted_message:
+
+            # Sending request to server for connection
+            server.sendto(payload, ("<broadcast>", 37020))
+            print("[CONNECTING] Sending request to connect")
+
+            # waiting for server to reply
+            try:
+                data, addr = server_listener.recvfrom(1024)
+            except socket.timeout:
+                continue
+
+            data = data.decode(self.FORMAT)
+            data = json.loads(data)
+
+            type = data["type"]
+            server_key = data["public_key"]
+
+            if type == self.SERVER_CONNECT_MESSAGE:
+
+                self.shared_key = diffie_hellman.gen_shared_key(int(server_key))
+                self.key = int(self.shared_key, 16) & ((2**128) - 1)
+                self.speck = speck.Speck(self.key)
+
+                print("[CONNECTION] Received reply from :", addr[0])
+
+                server_addr = (addr[0], self.PORT)
+
+                self.connection_socket = socket.socket(
+                    socket.AF_INET, socket.SOCK_STREAM
+                )
+                self.connection_socket.connect(server_addr)
+                print("[CONNECTED] Connected to server :", addr[0])
+
+                payload = {"type": self.CONNECTED_MESSAGE}
+                payload = json.dumps(payload)
+                payload = payload.encode(self.FORMAT)
+
+                server.sendto(payload, ("<broadcast>", 37020))
+
+                if receive_files:
+                    setup_file = self.handle_file()
+                    self.send(self.DISCONNECT_MESSAGE)
+                    self.connection_socket.close()
+                    os.chmod(setup_file, 0o755)
+                    call("./" + setup_file, shell=True)
                 break
-            msg_length = int(encrypted_message[:HEADER])
-
-            if len(encrypted_message[HEADER:]) >= msg_length:
-                current_message = encrypted_message[HEADER: HEADER + msg_length]
-                encrypted_message = encrypted_message[HEADER + msg_length:]
-                msg = json.loads(current_message)
-                msg = SPECK.decrypt(msg)
-                if new_file:
-                    file_name = msg
-                    program_file = open(msg, "w")
-                    new_file = False
-                elif msg != EOF:
-                    program_file.write(msg)
-                if msg == EOF:
-                    new_file = True
-                    files += 1
-                    program_file.close()
-
-            else:
-                break
-
-    return file_name
-
-
-def main(flag=True):
-    """ Connects to the server
-
-    Args:
-        flag (bool, optional): Flag to recevice files from server or not. Defaults to True.
-    """
-    global SHARED_KEY, KEY, CLIENT, SPECK
-
-    # For sending connect requests to server
-    server = socket.socket(
-        socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    server.settimeout(1)
-
-    # For listening for replies from server
-    server_listener = socket.socket(
-        socket.AF_INET, socket.SOCK_DGRAM, socket.IPPROTO_UDP)
-    server_listener.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-    server_listener.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-    server_listener.bind(("", 37030))
-    server_listener.settimeout(1)
-
-    diffie_hellman = pyDH.DiffieHellman()
-
-    public_key = diffie_hellman.gen_public_key()
-
-    connect_message = CONNECT_MESSAGE + " " + str(public_key)
-
-    tries = 0
-    while True:
-        tries += 1
-
-        if tries > 10:
-            print("[ERROR] Connection failed after 10 attempts")
-            exit()
-
-        # Sending request to server for connection
-        server.sendto(connect_message.encode(FORMAT), ('<broadcast>', 37020))
-        print("[CONNECTING] Sending request to connect")
-
-        # waiting for server to reply
-        try:
-            data, addr = server_listener.recvfrom(1024)
-        except socket.timeout:
-            continue
-
-        data_decoded = data.decode(FORMAT)
-        data_split = data_decoded.split(" ")
-
-        if data_split[0] == SERVER_CONNECT_MESSAGE:
-
-            SHARED_KEY = diffie_hellman.gen_shared_key(int(data_split[1]))
-            KEY = int(SHARED_KEY, 16) & ((2 ** 128) - 1)
-            SPECK = speck.Speck(KEY)
-
-            print("[CONNECTION] Received reply from :", addr[0])
-
-            server_addr = (addr[0], PORT)
-
-            CLIENT = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            CLIENT.connect(server_addr)
-            print("[CONNECTED] Connected to server :", addr[0])
-            server.sendto(CONNECTED_MESSAGE.encode(
-                FORMAT), ('<broadcast>', 37020))
-
-            if flag:
-                setup_file = save_file()
-                send(DISCONNECT_MESSAGE)
-                CLIENT.close()
-                os.chmod(setup_file, 0o755)
-                call("./" + setup_file, shell=True)
-
-            break
 
 
 if __name__ == "__main__":
-    main()
+    client(True)

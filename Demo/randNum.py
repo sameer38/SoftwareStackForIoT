@@ -1,14 +1,14 @@
-from client import connect, send, DISCONNECT_MESSAGE
+import client
 import time
 import random
 
-# Connect to the server
-connect()
+client2 = client.client(False)
+
 
 # Generate 5 random rumbers and send them to the server
 for i in range(5):
-    send(str(random.randint(1, 100)))
+    client2.send(str(random.randint(1, 100)))
     time.sleep(0.5)
 
 # Disconnect from the server
-send(DISCONNECT_MESSAGE)
+client2.send(client2.DISCONNECT_MESSAGE)

@@ -1,1 +1,1 @@
-python3 randNum.py
+python3 cam.py
