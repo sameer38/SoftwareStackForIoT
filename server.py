@@ -89,21 +89,47 @@ def lookup():
             continue
 
 
-def handle_file(current_payload):
-    """Saves file from server
+def receive_data(connection_socket, payload, speck):
 
-    Returns:
-        string: name of the saved file
-    """
+    payload_next = connection_socket.recv(1024)
+    payload_next = payload_next.decode(FORMAT)
+    payload = payload + payload_next
 
-    file = open(current_payload["file"], "wb")
-    contents = current_payload["data"]
-    contents = contents.encode("utf-8")
-    contents = base64.b64decode(contents)
-    file.write(contents)
+    if not payload:
+        print("Connection reset")
+
+    payload_length = int(payload[:HEADER])
+    payload = payload[HEADER:]
+
+    while len(payload) < payload_length:
+        payload_next = connection_socket.recv(1024)
+        payload += payload_next.decode(FORMAT)
+
+    current_payload = payload[:payload_length]
+    payload = payload[payload_length:]
+    current_payload = json.loads(current_payload)
+    current_payload = speck.decrypt(current_payload)
+    current_payload = json.loads(current_payload)
+
+    return (current_payload, payload)
+
+
+def save_file(file, payload, connection_socket, speck):
+
+    file = open(file, "wb")
+    while True:
+
+        (current_payload, payload) = receive_data(connection_socket, payload, speck)
+
+        if current_payload == EOF:
+            break
+
+        current_payload = current_payload.encode("utf-8")
+        current_payload = base64.b64decode(current_payload)
+        file.write(current_payload)
+
     file.close()
-
-    return current_payload["file"]
+    return payload
 
 
 def send(connection_socket, data, speck):
@@ -112,9 +138,9 @@ def send(connection_socket, data, speck):
     Args:
         msg (string): data to send
     """
-    payload = {"type": MESSAGE_TYPE, "data": data}
-    payload = json.dumps(payload)
+    payload = json.dumps(data)
     payload = speck.encrypt(payload)
+    payload = json.dumps(payload)
     payload = f"{len(payload):<{HEADER}}" + payload
     payload = payload.encode(FORMAT)
     connection_socket.send(payload)
@@ -132,20 +158,16 @@ def send_file(connection_socket, file_name, save_file_name, speck, script, end=T
         end (bool, optional): _description_. Defaults to True.
     """
     payload = {"type": FILE_TYPE, "file": save_file_name, "end": end, "script": script}
+
+    send(connection_socket, payload, speck)
+
     file = open(file_name, "r")
-    contents = file.read()
-    payload["data"] = contents
+    contents = file.read(1024)
+    while contents:
+        send(connection_socket, contents, speck)
+        contents = file.read(1024)
     file.close()
-    payload = json.dumps(payload)
-    payload = speck.encrypt(payload)
-    payload = json.dumps(payload)
-    payload = f"{len(payload):<{HEADER}}" + payload
-    payload = payload.encode(FORMAT)
-    connection_socket.send(payload)
-
-
-def receive_data():
-    pass
+    send(connection_socket, EOF, speck)
 
 
 def handle_client(connection_socket, addr):
@@ -172,43 +194,23 @@ def handle_client(connection_socket, addr):
         )
         send_files_set.remove(addr[0])
 
-    payload_length = 0
     payload = ""
-    try:
-        while True:
-            payload_next = connection_socket.recv(1024)
+    while True:
 
-            if (not payload) and (not payload_next):
-                print("[Info] Connection Closed")
-                connection_socket.close()
+        (current_payload, payload) = receive_data(connection_socket, payload, speck_obj)
+
+        type = current_payload["type"]
+
+        if type == MESSAGE_TYPE:
+            if current_payload["data"] == DISCONNECT_MESSAGE:
+                print(f"[{addr}] Disconnected")
                 break
-
-            payload += payload_next.decode(FORMAT)
-            payload_length = int(payload[:HEADER])
-            payload = payload[HEADER:]
-
-            while len(payload) < payload_length:
-                payload_next = connection_socket.recv(1024)
-                payload += payload_next.decode(FORMAT)
-
-            current_payload = payload[:payload_length]
-            payload = payload[payload_length:]
-            current_payload = json.loads(current_payload)
-            current_payload = speck_obj.decrypt(current_payload)
-            current_payload = json.loads(current_payload)
-            type = current_payload["type"]
-
-            if type == MESSAGE_TYPE:
-                if current_payload["data"] == DISCONNECT_MESSAGE:
-                    print(f"[{addr}] Disconnected")
-                    break
-                print(f"[{addr}] {current_payload['data']}")
-            elif type == FILE_TYPE:
-                handle_file(current_payload)
-    except Exception as e:
-        print(e)
+            print(f"[{addr}] {current_payload['data']}")
+        elif type == FILE_TYPE:
+            file = current_payload["file"]
+            payload = save_file(file, payload, connection_socket, speck_obj)
+            print(f"[{addr}] {file} received")
     connection_socket.close()
-    # print("here")
 
 
 def start():

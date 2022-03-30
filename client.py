@@ -49,11 +49,54 @@ class client:
             file_name (string): name of the file
         """
         payload = {"type": self.FILE_TYPE, "file": file_name}
-        file = open(file_path, "rb")
-        contents = file.read()
-        payload["data"] = base64.b64encode(contents).decode("utf-8")
-        file.close()
         self.send_data(payload)
+
+        file = open(file_path, "rb")
+
+        contents = file.read(128)
+        while contents:
+            contents = base64.b64encode(contents).decode("utf-8")
+            self.send_data(contents)
+            contents = file.read(128)
+
+        file.close()
+        self.send_data(self.EOF)
+
+    def receive_data(self, payload):
+
+        if not payload:
+            payload_next = self.connection_socket.recv(1024)
+            payload_next = payload_next.decode(self.FORMAT)
+            payload = payload + payload_next
+
+        payload_length = int(payload[: self.HEADER])
+        payload = payload[self.HEADER :]
+
+        while len(payload) < payload_length:
+            payload_next = self.connection_socket.recv(1024)
+            payload += payload_next.decode(self.FORMAT)
+
+        current_payload = payload[:payload_length]
+        payload = payload[payload_length:]
+        current_payload = json.loads(current_payload)
+        current_payload = self.speck.decrypt(current_payload)
+        current_payload = json.loads(current_payload)
+
+        return (current_payload, payload)
+
+    def save_file(self, file, payload):
+
+        file = open(file, "w")
+        while True:
+            (current_payload, payload) = self.receive_data(payload)
+
+            if current_payload == self.EOF:
+                break
+
+            file.write(current_payload)
+
+        file.close()
+        return payload
 
     def handle_file(self):
         """Saves file from server
@@ -68,30 +111,14 @@ class client:
 
         while not end:
 
-            payload_next = self.connection_socket.recv(1024)
-            payload += payload_next.decode(self.FORMAT)
-            payload_length = int(payload[: self.HEADER])
-            payload = payload[self.HEADER :]
-
-            while len(payload) < payload_length:
-                payload_next = self.connection_socket.recv(1024)
-                payload += payload_next.decode(self.FORMAT)
-
-            current_payload = payload[:payload_length]
-            payload = payload[payload_length:]
-            current_payload = json.loads(current_payload)
-            current_payload = self.speck.decrypt(current_payload)
-            current_payload = json.loads(current_payload)
+            (current_payload, payload) = self.receive_data(payload)
             end = current_payload["end"]
             file = current_payload["file"]
-            contents = current_payload["data"]
 
             if current_payload["script"]:
                 file_name = file
 
-            file = open(file, "w")
-            file.write(contents)
-            file.close()
+            payload = self.save_file(file, payload)
 
         return file_name
 
@@ -126,6 +153,7 @@ class client:
         while True:
 
             # Sending request to server for connection
+            # server.sendto(payload, ("localhost", 37020))
             server.sendto(payload, ("<broadcast>", 37020))
             print("[CONNECTING] Sending request to connect")
 
@@ -161,6 +189,7 @@ class client:
                 payload = json.dumps(payload)
                 payload = payload.encode(self.FORMAT)
 
+                # server.sendto(payload, ("localhost", 37020))
                 server.sendto(payload, ("<broadcast>", 37020))
 
                 if receive_files:
