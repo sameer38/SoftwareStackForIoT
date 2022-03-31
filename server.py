@@ -1,7 +1,7 @@
 import socket
 import threading
 import pyDH
-import speck
+import speck_using
 import json
 import base64
 
@@ -178,7 +178,7 @@ def handle_client(connection_socket, addr):
         addr : addr of the connected client
     """
     key = int(shared_key[addr[0]], 16) & ((2**128) - 1)
-    speck_obj = speck.Speck(key)
+    speck_obj = speck_using.Speck(key)
 
     print(f"[NEW CONNECTION] {addr} connected.")
 

@@ -2,7 +2,7 @@ import os
 import socket
 from subprocess import call
 import pyDH
-import speck
+import speck_using
 import json
 import base64
 
@@ -173,7 +173,7 @@ class client:
 
                 self.shared_key = diffie_hellman.gen_shared_key(int(server_key))
                 self.key = int(self.shared_key, 16) & ((2**128) - 1)
-                self.speck = speck.Speck(self.key)
+                self.speck = speck_using.Speck(self.key)
 
                 print("[CONNECTION] Received reply from :", addr[0])
 
