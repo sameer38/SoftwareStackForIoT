@@ -19,6 +19,8 @@ class client:
     MESSAGE_TYPE = "!DATA"
     FILE_TYPE = "!FILE"
     EOF = "!EOF"
+    AUTHENTICATED_MESSAGE = "!AUTHENTICATED"
+    INVALID_MESSAGE = "!INVALID"
 
     def connect(self, receive_files=False):
         """Connects to the server"""
@@ -64,7 +66,7 @@ class client:
 
     def receive_data(self, payload):
 
-        if not payload:
+        if len(payload) < self.HEADER:
             payload_next = self.connection_socket.recv(1024)
             payload_next = payload_next.decode(self.FORMAT)
             payload = payload + payload_next
@@ -98,7 +100,7 @@ class client:
         file.close()
         return payload
 
-    def handle_file(self):
+    def handle_file(self, payload=""):
         """Saves file from server
 
         Returns:
@@ -106,7 +108,6 @@ class client:
         """
 
         end = False
-        payload = ""
         file_name = ""
 
         while not end:
@@ -192,8 +193,19 @@ class client:
                 # server.sendto(payload, ("localhost", 37020))
                 server.sendto(payload, ("<broadcast>", 37020))
 
+                authenticated = False
+                payload = ""
+                while not authenticated:
+                    pin = input("Please enter the pin for the server : ")
+                    self.send(pin)
+                    (current_payload, payload) = self.receive_data(payload)
+                    print(current_payload)
+                    authenticated = (
+                        current_payload["data"] == self.AUTHENTICATED_MESSAGE
+                    )
+
                 if receive_files:
-                    setup_file = self.handle_file()
+                    setup_file = self.handle_file(payload)
                     self.send(self.DISCONNECT_MESSAGE)
                     self.connection_socket.close()
                     os.chmod(setup_file, 0o755)

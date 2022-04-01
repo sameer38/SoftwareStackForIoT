@@ -1,3 +1,4 @@
+import random
 import socket
 import threading
 import pyDH
@@ -34,6 +35,8 @@ SERVER_CONNECT_MESSAGE = "!SERVER_CONNECT"
 EOF = "!EOF"
 MESSAGE_TYPE = "!DATA"
 FILE_TYPE = "!FILE"
+AUTHENTICATED_MESSAGE = "!AUTHENTICATED"
+INVALID_MESSAGE = "!INVALID"
 
 
 diffie_hellman = pyDH.DiffieHellman()
@@ -91,12 +94,10 @@ def lookup():
 
 def receive_data(connection_socket, payload, speck):
 
-    payload_next = connection_socket.recv(1024)
-    payload_next = payload_next.decode(FORMAT)
-    payload = payload + payload_next
-
-    if not payload:
-        print("Connection reset")
+    if len(payload) < HEADER:
+        payload_next = connection_socket.recv(1024)
+        payload_next = payload_next.decode(FORMAT)
+        payload = payload + payload_next
 
     payload_length = int(payload[:HEADER])
     payload = payload[HEADER:]
@@ -146,6 +147,11 @@ def send(connection_socket, data, speck):
     connection_socket.send(payload)
 
 
+def send_message(connection_socket, message, speck):
+    payload = {"type": MESSAGE_TYPE, "data": message}
+    send(connection_socket, payload, speck)
+
+
 def send_file(connection_socket, file_name, save_file_name, speck, script, end=True):
     """_summary_
 
@@ -182,6 +188,28 @@ def handle_client(connection_socket, addr):
 
     print(f"[NEW CONNECTION] {addr} connected.")
 
+    authenticated = False
+    payload = ""
+    pin = random.randint(10000, 99999)
+    tries = 0
+
+    print(f"[{addr}] Please enter the pin on the device (Pin : {pin})")
+
+    while not authenticated:
+        if tries > 3:
+            print(f"[{addr}] Maximum attempts reached")
+            connection_socket.close()
+            return
+
+        (current_payload, payload) = receive_data(connection_socket, payload, speck_obj)
+
+        if int(current_payload["data"]) == pin:
+            authenticated = True
+            send_message(connection_socket, AUTHENTICATED_MESSAGE, speck_obj)
+        else:
+            tries += 1
+            send_message(connection_socket, INVALID_MESSAGE, speck_obj)
+
     if addr[0] in send_files_set:
         send_file(connection_socket, "Demo/cam.py", "cam.py", speck_obj, False, False)
         send_file(
@@ -194,10 +222,13 @@ def handle_client(connection_socket, addr):
         )
         send_files_set.remove(addr[0])
 
-    payload = ""
     while True:
 
         (current_payload, payload) = receive_data(connection_socket, payload, speck_obj)
+
+        if not current_payload:
+            print(f"[{addr} Connection closed]")
+            break
 
         type = current_payload["type"]
 
