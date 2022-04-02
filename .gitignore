@@ -15,3 +15,5 @@ a.out
 fun.py
 libfun.so
 libspeck.so
+auth.config
+ui.py

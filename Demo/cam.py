@@ -11,7 +11,7 @@ client2 = client.client(False)
 # Generate 5 random rumbers and send them to the server
 for i in range(1, 3):
     camera.start_preview()
-    # sleep(5)
+    sleep(2)
     print("Capturing ....")
     camera.capture("./image" + str(i) + ".png")
     camera.stop_preview()

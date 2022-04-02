@@ -42,6 +42,10 @@ INVALID_MESSAGE = "!INVALID"
 diffie_hellman = pyDH.DiffieHellman()
 public_key = diffie_hellman.gen_public_key()
 shared_key = {}
+programs = {}
+programs_list = []
+authencicated_set = set()
+authenticated_keys = {}
 
 server_connect_message = {"type": SERVER_CONNECT_MESSAGE, "public_key": public_key}
 server_connect_message = json.dumps(server_connect_message)
@@ -117,7 +121,7 @@ def receive_data(connection_socket, payload, speck):
 
 def save_file(file, payload, connection_socket, speck):
 
-    file = open(file, "wb")
+    file = open("files/" + file, "wb")
     while True:
 
         (current_payload, payload) = receive_data(connection_socket, payload, speck)
@@ -196,6 +200,7 @@ def handle_client(connection_socket, addr):
     print(f"[{addr}] Please enter the pin on the device (Pin : {pin})")
 
     while not authenticated:
+
         if tries > 2:
             print(f"[{addr}] Maximum attempts reached")
             send_message(connection_socket, DISCONNECT_MESSAGE, speck_obj)
@@ -204,19 +209,54 @@ def handle_client(connection_socket, addr):
 
         (current_payload, payload) = receive_data(connection_socket, payload, speck_obj)
 
-        if int(current_payload["data"]) == pin:
+        if addr[0] in authencicated_set:
+            if current_payload["data"] == authenticated_keys[addr[0]]:
+                authenticated = True
+                send_message(
+                    connection_socket,
+                    AUTHENTICATED_MESSAGE,
+                    speck_obj,
+                )
+            else:
+                tries += 1
+                send_message(connection_socket, INVALID_MESSAGE, speck_obj)
+                authencicated_set.remove(addr[0])
+            continue
+
+        if current_payload["data"] == pin:
             authenticated = True
-            send_message(connection_socket, AUTHENTICATED_MESSAGE, speck_obj)
+            authencicated_set.add(addr[0])
+            authentication_key = random.getrandbits(128)
+            authenticated_keys[addr[0]] = authentication_key
+            send_message(
+                connection_socket,
+                AUTHENTICATED_MESSAGE,
+                speck_obj,
+            )
+            send_message(connection_socket, authentication_key, speck_obj)
         else:
             tries += 1
             send_message(connection_socket, INVALID_MESSAGE, speck_obj)
 
     if addr[0] in send_files_set:
-        send_file(connection_socket, "Demo/cam.py", "cam.py", speck_obj, False, False)
+        send_message(connection_socket, programs_list, speck_obj)
+
+        (current_payload, payload) = receive_data(connection_socket, payload, speck_obj)
+        program_to_run = current_payload["data"]
+        program_to_run = programs[program_to_run]
+
         send_file(
             connection_socket,
-            "Demo/startScript.sh",
-            "start_script.sh",
+            program_to_run["program_path"],
+            program_to_run["program_name"],
+            speck_obj,
+            False,
+            False,
+        )
+        send_file(
+            connection_socket,
+            program_to_run["script_path"],
+            program_to_run["script_name"],
             speck_obj,
             True,
             True,
@@ -258,6 +298,13 @@ def start():
         thread.start()
         # print(f"[ACTIVE CONNECTIONS] {number_of_connected_clients}")
 
+
+programs_file = open("programs.config", "r")
+programs = json.load(programs_file)
+programs_list = [i for i in programs]
+print("List of programs:")
+for i, a in enumerate(programs_list):
+    print(f"{i + 1}. {a}")
 
 print("[STARTING] server is starting...")
 start()

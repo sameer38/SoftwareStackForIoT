@@ -195,21 +195,54 @@ class client:
 
                 authenticated = False
                 payload = ""
+                has_auth_token = False
+
+                if os.path.exists("./auth.config"):
+                    auth_file = open("auth.config", "r")
+                    auth_token = auth_file.read()
+                    if auth_token != "":
+                        has_auth_token = True
+                    auth_file.close()
+
                 while not authenticated:
-                    pin = input("Please enter the pin for the server : ")
-                    self.send(pin)
+                    if has_auth_token:
+                        self.send(int(auth_token))
+                    else:
+                        pin = input("Please enter the pin for the server : ")
+                        self.send(int(pin))
                     (current_payload, payload) = self.receive_data(payload)
                     authenticated = (
                         current_payload["data"] == self.AUTHENTICATED_MESSAGE
                     )
+                    if authenticated and not has_auth_token:
+                        (current_payload, payload) = self.receive_data(payload)
+                        auth_token = current_payload["data"]
+                        auth_file = open("auth.config", "w+")
+                        auth_file.write(str(auth_token))
+                        auth_file.close()
+
                     if not authenticated:
                         print("Invalid")
+                        has_auth_token = False
                     if current_payload["data"] == self.DISCONNECT_MESSAGE:
                         print("Maximum attempts reached. Disconnected")
                         self.connection_socket.close()
                         return
 
                 if receive_files:
+                    (current_payload, payload) = self.receive_data(payload)
+
+                    program_list = current_payload["data"]
+                    print("List of programs : ")
+                    for i, a in enumerate(program_list):
+                        print(f"{i + 1}. {a}")
+
+                    program = int(input("Choose a program to execute : "))
+                    while program > len(program_list) or program < 1:
+                        program = input("Invalid choice please enter again : ")
+
+                    self.send(program_list[program - 1])
+
                     setup_file = self.handle_file(payload)
                     self.send(self.DISCONNECT_MESSAGE)
                     self.connection_socket.close()
