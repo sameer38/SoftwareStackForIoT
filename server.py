@@ -185,6 +185,15 @@ def send_file(connection_socket, file_name, save_file_name, speck, script, end=T
     send(connection_socket, EOF, speck)
 
 
+def save_data(current_payload, addr):
+    if not os.path.exists("data_" + name_map[addr[0]]):
+        os.makedirs("data_" + name_map[addr[0]])
+
+    data_file = open("data_" + name_map[addr[0]] + "/data.txt", "a+")
+    data_file.write(current_payload["data"] + "\n")
+    data_file.close()
+
+
 def handle_client(connection_socket, addr):
     """Handles the connected clients
 
@@ -296,6 +305,7 @@ def handle_client(connection_socket, addr):
             if current_payload["data"] == DISCONNECT_MESSAGE:
                 print(f"[{name_map[addr[0]]}] Disconnected")
                 break
+            save_data(current_payload, addr)
             print(f"[{name_map[addr[0]]}] {current_payload['data']}")
         elif type == FILE_TYPE:
             file = current_payload["file"]
