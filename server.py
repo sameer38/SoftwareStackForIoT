@@ -5,6 +5,7 @@ import pyDH
 import speck_using
 import json
 import base64
+import os
 
 
 def extract_ip():
@@ -46,6 +47,7 @@ programs = {}
 programs_list = []
 authencicated_set = set()
 authenticated_keys = {}
+name_map = {}
 
 server_connect_message = {"type": SERVER_CONNECT_MESSAGE, "public_key": public_key}
 server_connect_message = json.dumps(server_connect_message)
@@ -119,9 +121,12 @@ def receive_data(connection_socket, payload, speck):
     return (current_payload, payload)
 
 
-def save_file(file, payload, connection_socket, speck):
+def save_file(file, payload, connection_socket, speck, addr):
 
-    file = open("files/" + file, "wb")
+    if not os.path.exists("data_" + name_map[addr[0]] + "/files/"):
+        os.makedirs("data_" + name_map[addr[0]] + "/files/")
+
+    file = open("data_" + name_map[addr[0]] + "/files/" + file, "wb")
     while True:
 
         (current_payload, payload) = receive_data(connection_socket, payload, speck)
@@ -197,7 +202,10 @@ def handle_client(connection_socket, addr):
     pin = random.randint(10000, 99999)
     tries = 0
 
-    print(f"[{addr}] Please enter the pin on the device (Pin : {pin})")
+    if addr[0] not in name_map:
+        print(f"[{addr}] Please enter the pin on the device (Pin : {pin})")
+    else:
+        print(f"[{name_map[addr[0]]}] Please enter the pin on the device (Pin : {pin})")
 
     while not authenticated:
 
@@ -218,7 +226,6 @@ def handle_client(connection_socket, addr):
                     speck_obj,
                 )
             else:
-                tries += 1
                 send_message(connection_socket, INVALID_MESSAGE, speck_obj)
                 authencicated_set.remove(addr[0])
             continue
@@ -237,6 +244,10 @@ def handle_client(connection_socket, addr):
         else:
             tries += 1
             send_message(connection_socket, INVALID_MESSAGE, speck_obj)
+
+    if addr[0] not in name_map:
+        name = input(f"{addr[0]} authenticated. Give it a name : ")
+        name_map[addr[0]] = name
 
     if addr[0] in send_files_set:
         send_message(connection_socket, programs_list, speck_obj)
@@ -275,13 +286,13 @@ def handle_client(connection_socket, addr):
 
         if type == MESSAGE_TYPE:
             if current_payload["data"] == DISCONNECT_MESSAGE:
-                print(f"[{addr}] Disconnected")
+                print(f"[{name_map[addr[0]]}] Disconnected")
                 break
-            print(f"[{addr}] {current_payload['data']}")
+            print(f"[{name_map[addr[0]]}] {current_payload['data']}")
         elif type == FILE_TYPE:
             file = current_payload["file"]
-            payload = save_file(file, payload, connection_socket, speck_obj)
-            print(f"[{addr}] {file} received")
+            payload = save_file(file, payload, connection_socket, speck_obj, addr)
+            print(f"[{name_map[addr[0]]}] {file} received")
     connection_socket.close()
 
 
