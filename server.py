@@ -45,7 +45,6 @@ public_key = diffie_hellman.gen_public_key()
 shared_key = {}
 programs = {}
 programs_list = []
-authencicated_set = set()
 authenticated_keys = {}
 name_map = {}
 
@@ -55,6 +54,7 @@ server_connect_message = json.dumps(server_connect_message)
 send_files_set = set()
 
 server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 server.bind(ADDR)
 
 # receives requests from clients to conenct and send a connect message back to confirm
@@ -192,6 +192,7 @@ def handle_client(connection_socket, addr):
         conn : connection to the client
         addr : addr of the connected client
     """
+    global authenticated_keys
     key = int(shared_key[addr[0]], 16) & ((2**128) - 1)
     speck_obj = speck_using.Speck(key)
 
@@ -201,11 +202,6 @@ def handle_client(connection_socket, addr):
     payload = ""
     pin = random.randint(10000, 99999)
     tries = 0
-
-    if addr[0] not in name_map:
-        print(f"[{addr}] Please enter the pin on the device (Pin : {pin})")
-    else:
-        print(f"[{name_map[addr[0]]}] Please enter the pin on the device (Pin : {pin})")
 
     while not authenticated:
 
@@ -217,7 +213,7 @@ def handle_client(connection_socket, addr):
 
         (current_payload, payload) = receive_data(connection_socket, payload, speck_obj)
 
-        if addr[0] in authencicated_set:
+        if addr[0] in authenticated_keys:
             if current_payload["data"] == authenticated_keys[addr[0]]:
                 authenticated = True
                 send_message(
@@ -227,14 +223,23 @@ def handle_client(connection_socket, addr):
                 )
             else:
                 send_message(connection_socket, INVALID_MESSAGE, speck_obj)
-                authencicated_set.remove(addr[0])
+                authenticated_keys.remove(addr[0])
             continue
+
+        if addr[0] not in name_map:
+            print(f"[{addr}] Please enter the pin on the device (Pin : {pin})")
+        else:
+            print(
+                f"[{name_map[addr[0]]}] Please enter the pin on the device (Pin : {pin})"
+            )
 
         if current_payload["data"] == pin:
             authenticated = True
-            authencicated_set.add(addr[0])
             authentication_key = random.getrandbits(128)
             authenticated_keys[addr[0]] = authentication_key
+            auth_file = open("server_auth.config", "w+")
+            json.dump(authenticated_keys, auth_file)
+            auth_file.close()
             send_message(
                 connection_socket,
                 AUTHENTICATED_MESSAGE,
@@ -248,6 +253,9 @@ def handle_client(connection_socket, addr):
     if addr[0] not in name_map:
         name = input(f"{addr[0]} authenticated. Give it a name : ")
         name_map[addr[0]] = name
+        name_file = open("server_name.config", "w+")
+        json.dump(name_map, name_file)
+        name_file.close()
 
     if addr[0] in send_files_set:
         send_message(connection_socket, programs_list, speck_obj)
@@ -312,10 +320,21 @@ def start():
 
 programs_file = open("programs.config", "r")
 programs = json.load(programs_file)
+programs_file.close()
 programs_list = [i for i in programs]
 print("List of programs:")
 for i, a in enumerate(programs_list):
     print(f"{i + 1}. {a}")
+
+if os.path.exists("server_auth.config"):
+    auth_file = open("server_auth.config", "r")
+    authenticated_keys = json.load(auth_file)
+    auth_file.close()
+
+if os.path.exists("server_name.config"):
+    name_file = open("server_name.config", "r")
+    name_map = json.load(name_file)
+    name_file.close()
 
 print("[STARTING] server is starting...")
 start()

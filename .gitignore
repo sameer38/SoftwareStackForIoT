@@ -3,7 +3,7 @@ randNum.py
 __pycache__/*
 test.py
 .vscode/*
-start_script.sh
+start*.sh
 pi_test.png
 test.png
 test2.png
@@ -17,3 +17,6 @@ libfun.so
 libspeck.so
 auth.config
 ui.py
+data_*/
+server_auth.config
+server_name.config
