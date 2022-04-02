@@ -196,8 +196,9 @@ def handle_client(connection_socket, addr):
     print(f"[{addr}] Please enter the pin on the device (Pin : {pin})")
 
     while not authenticated:
-        if tries > 3:
+        if tries > 2:
             print(f"[{addr}] Maximum attempts reached")
+            send_message(connection_socket, DISCONNECT_MESSAGE, speck_obj)
             connection_socket.close()
             return
 

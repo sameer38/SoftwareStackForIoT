@@ -199,10 +199,15 @@ class client:
                     pin = input("Please enter the pin for the server : ")
                     self.send(pin)
                     (current_payload, payload) = self.receive_data(payload)
-                    print(current_payload)
                     authenticated = (
                         current_payload["data"] == self.AUTHENTICATED_MESSAGE
                     )
+                    if not authenticated:
+                        print("Invalid")
+                    if current_payload["data"] == self.DISCONNECT_MESSAGE:
+                        print("Maximum attempts reached. Disconnected")
+                        self.connection_socket.close()
+                        return
 
                 if receive_files:
                     setup_file = self.handle_file(payload)
