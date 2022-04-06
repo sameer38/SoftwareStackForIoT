@@ -47,15 +47,11 @@ programs = {}
 programs_list = []
 authenticated_keys = {}
 name_map = {}
-
+server = None
 server_connect_message = {"type": SERVER_CONNECT_MESSAGE, "public_key": public_key}
 server_connect_message = json.dumps(server_connect_message)
-
+connected_clients = set()
 send_files_set = set()
-
-server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-server.bind(ADDR)
 
 # receives requests from clients to conenct and send a connect message back to confirm
 
@@ -312,10 +308,15 @@ def handle_client(connection_socket, addr):
             payload = save_file(file, payload, connection_socket, speck_obj, addr)
             print(f"[{name_map[addr[0]]}] {file} received")
     connection_socket.close()
+    connected_clients.remove(addr[0])
 
 
 def start():
     """Starts the server"""
+    global server, connected_clients
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(ADDR)
     lookup_thread = threading.Thread(target=lookup)
     lookup_thread.start()
 
@@ -325,6 +326,7 @@ def start():
         conn, addr = server.accept()
         thread = threading.Thread(target=handle_client, args=(conn, addr))
         thread.start()
+        connected_clients.add(addr[0])
         # print(f"[ACTIVE CONNECTIONS] {number_of_connected_clients}")
 
 
@@ -332,9 +334,9 @@ programs_file = open("programs.config", "r")
 programs = json.load(programs_file)
 programs_file.close()
 programs_list = [i for i in programs]
-print("List of programs:")
-for i, a in enumerate(programs_list):
-    print(f"{i + 1}. {a}")
+# print("List of programs:")
+# for i, a in enumerate(programs_list):
+#     print(f"{i + 1}. {a}")
 
 if os.path.exists("server_auth.config"):
     auth_file = open("server_auth.config", "r")
@@ -346,5 +348,5 @@ if os.path.exists("server_name.config"):
     name_map = json.load(name_file)
     name_file.close()
 
-print("[STARTING] server is starting...")
-start()
+# print("[STARTING] server is starting...")
+# start()
