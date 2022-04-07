@@ -52,6 +52,25 @@ server_connect_message = {"type": SERVER_CONNECT_MESSAGE, "public_key": public_k
 server_connect_message = json.dumps(server_connect_message)
 connected_clients = set()
 send_files_set = set()
+clientStatusCallback = None
+
+
+def add_program(program_name, script_file_path, program_file_path):
+    script_file_name = script_file_path.split("/")[-1]
+    program_file_name = program_file_path.split("/")[-1]
+    programs[program_name] = {
+        "program_name": program_file_name,
+        "program_path": program_file_path,
+        "script_name": script_file_name,
+        "script_path": script_file_path,
+    }
+
+    programs_file = open("programs.config", "w+")
+    json.dump(programs, programs_file)
+    programs_file.close()
+
+    print("here")
+
 
 # receives requests from clients to conenct and send a connect message back to confirm
 
@@ -228,7 +247,7 @@ def handle_client(connection_socket, addr):
                 )
             else:
                 send_message(connection_socket, INVALID_MESSAGE, speck_obj)
-                authenticated_keys.remove(addr[0])
+                authenticated_keys.pop(addr[0])
             continue
 
         if addr[0] not in name_map:
@@ -261,6 +280,8 @@ def handle_client(connection_socket, addr):
         name_file = open("server_name.config", "w+")
         json.dump(name_map, name_file)
         name_file.close()
+
+    clientStatusCallback(name_map, authenticated_keys, connected_clients)
 
     if addr[0] in send_files_set:
         send_message(connection_socket, programs_list, speck_obj)
@@ -311,7 +332,7 @@ def handle_client(connection_socket, addr):
     connected_clients.remove(addr[0])
 
 
-def start():
+def _start_():
     """Starts the server"""
     global server, connected_clients
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -328,6 +349,14 @@ def start():
         thread.start()
         connected_clients.add(addr[0])
         # print(f"[ACTIVE CONNECTIONS] {number_of_connected_clients}")
+
+
+def start(clientStatus):
+    global clientStatusCallback
+    clientStatusCallback = clientStatus
+    server_thread = threading.Thread(target=_start_)
+    server_thread.start()
+    return
 
 
 programs_file = open("programs.config", "r")
