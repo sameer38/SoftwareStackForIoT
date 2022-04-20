@@ -330,6 +330,7 @@ def handle_client(connection_socket, addr):
             print(f"[{name_map[addr[0]]}] {file} received")
     connection_socket.close()
     connected_clients.remove(addr[0])
+    clientStatusCallback(name_map, authenticated_keys, connected_clients)
 
 
 def _start_():

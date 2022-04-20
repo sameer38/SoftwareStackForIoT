@@ -11,6 +11,7 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 import server
 
 ui = None
+clientData = {}
 
 
 class Ui_MainWindow(object):
@@ -216,13 +217,25 @@ class Ui_MainWindow(object):
     def startServer(self):
         server.start(clientStatus)
 
-    def clientStatusUpdate(self):
+    def clientStatusUpdate(self, name, ip, autheticated_key, status):
         tableWidget = self.tableWidget
-        currentRowCount = tableWidget.rowCount()
-        tableWidget.insertRow(currentRowCount)
-        tableWidget.setItem(currentRowCount, 0, QtWidgets.QTableWidgetItem("text1"))
-        tableWidget.setItem(currentRowCount, 1, QtWidgets.QTableWidgetItem("text2"))
-        tableWidget.setItem(currentRowCount, 2, QtWidgets.QTableWidgetItem("text3"))
+
+        if len(clientData) == 0:
+            currentRowCount = tableWidget.rowCount() - 1
+            clientData[ip] = currentRowCount
+
+        if ip not in clientData:
+            currentRowCount = tableWidget.rowCount() - 1
+            tableWidget.insertRow(currentRowCount)
+            clientData[ip] = currentRowCount
+        else:
+            currentRowCount = clientData[ip]
+        tableWidget.setItem(currentRowCount, 0, QtWidgets.QTableWidgetItem(name))
+        tableWidget.setItem(currentRowCount, 1, QtWidgets.QTableWidgetItem(ip))
+        tableWidget.setItem(
+            currentRowCount, 2, QtWidgets.QTableWidgetItem(autheticated_key)
+        )
+        tableWidget.setItem(currentRowCount, 3, QtWidgets.QTableWidgetItem(status))
         pass
 
 
@@ -234,8 +247,8 @@ def clientStatus(name_map, authenticated_keys, connected_clients):
         "Connected" if i in connected_clients else "Disconnected" for i in name_map
     ]
 
-    ui.clientStatusUpdate()
-    print("her123e")
+    for i in range(len(client_ip)):
+        ui.clientStatusUpdate(client_names[i], client_ip[i], keys[i], status[i])
 
 
 if __name__ == "__main__":
