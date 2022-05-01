@@ -20,3 +20,6 @@ ui.py
 data_*/
 server_auth.config
 server_name.config
+client/__pycache__/*
+server/__pycache__/*
+server/__pycache__/*

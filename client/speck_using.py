@@ -8,7 +8,7 @@ class Speck:
 
     def __init__(self, key: int) -> None:
 
-        self.c_speck = ctypes.CDLL("~/SoftwareStackForIoT/libspeck.so")
+        self.c_speck = ctypes.CDLL("./libspeck.so")
 
         self.c_speck.Speck128128KeySchedule.argtypes = [
             ctypes.c_uint64 * 2,
