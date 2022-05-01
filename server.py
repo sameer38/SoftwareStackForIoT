@@ -56,6 +56,7 @@ clientStatusCallback = None
 
 
 def add_program(program_name, script_file_path, program_file_path):
+    global programs_list, programs
     script_file_name = script_file_path.split("/")[-1]
     program_file_name = program_file_path.split("/")[-1]
     programs[program_name] = {
@@ -68,8 +69,7 @@ def add_program(program_name, script_file_path, program_file_path):
     programs_file = open("programs.config", "w+")
     json.dump(programs, programs_file)
     programs_file.close()
-
-    print("here")
+    programs_list = [i for i in programs]
 
 
 # receives requests from clients to conenct and send a connect message back to confirm
