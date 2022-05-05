@@ -206,6 +206,7 @@ class client:
 
                 if not has_auth_token:
                     self.send(123)
+                    (current_payload, payload) = self.receive_data(payload)
 
                 while not authenticated:
                     if has_auth_token:
