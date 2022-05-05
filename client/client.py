@@ -204,6 +204,9 @@ class client:
                         has_auth_token = True
                     auth_file.close()
 
+                if not has_auth_token:
+                    self.send(123)
+
                 while not authenticated:
                     if has_auth_token:
                         self.send(int(auth_token))
