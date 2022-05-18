@@ -215,9 +215,9 @@ class Ui_MainWindow(object):
         server.add_program(program_name, script_file_path, program_file_path)
 
     def startServer(self):
-        server.start(clientStatus)
+        server.start(addClient, setStatus)
 
-    def clientStatusUpdate(self, name, ip, autheticated_key, status):
+    def addClient(self, name, ip, autheticated_key):
         tableWidget = self.tableWidget
 
         if len(clientData) == 0:
@@ -225,7 +225,7 @@ class Ui_MainWindow(object):
             clientData[ip] = currentRowCount
 
         if ip not in clientData:
-            currentRowCount = tableWidget.rowCount() - 1
+            currentRowCount = tableWidget.rowCount()
             tableWidget.insertRow(currentRowCount)
             clientData[ip] = currentRowCount
         else:
@@ -235,20 +235,29 @@ class Ui_MainWindow(object):
         tableWidget.setItem(
             currentRowCount, 2, QtWidgets.QTableWidgetItem(autheticated_key)
         )
+        return
+
+    def setStatus(self, ip, status):
+        tableWidget = self.tableWidget
+
+        if ip not in clientData:
+            return
+
+        currentRowCount = clientData[ip]
         tableWidget.setItem(currentRowCount, 3, QtWidgets.QTableWidgetItem(status))
-        pass
 
 
-def clientStatus(name_map, authenticated_keys, connected_clients):
+def addClient(name_map, authenticated_keys):
     client_ip = [str(i) for i in name_map]
     client_names = [name_map[i] for i in name_map]
     keys = [str(authenticated_keys[i]) for i in name_map]
-    status = [
-        "Connected" if i in connected_clients else "Disconnected" for i in name_map
-    ]
 
     for i in range(len(client_ip)):
-        ui.clientStatusUpdate(client_names[i], client_ip[i], keys[i], status[i])
+        ui.addClient(client_names[i], client_ip[i], keys[i])
+
+
+def setStatus(ip, status):
+    ui.setStatus(ip, status)
 
 
 if __name__ == "__main__":

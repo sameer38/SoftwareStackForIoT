@@ -39,7 +39,7 @@ FILE_TYPE = "!FILE"
 AUTHENTICATED_MESSAGE = "!AUTHENTICATED"
 INVALID_MESSAGE = "!INVALID"
 
-
+lock = threading.Lock()
 diffie_hellman = pyDH.DiffieHellman()
 public_key = diffie_hellman.gen_public_key()
 shared_key = {}
@@ -50,9 +50,9 @@ name_map = {}
 server = None
 server_connect_message = {"type": SERVER_CONNECT_MESSAGE, "public_key": public_key}
 server_connect_message = json.dumps(server_connect_message)
-connected_clients = set()
 send_files_set = set()
-clientStatusCallback = None
+addClient = None
+setStatus = None
 
 
 def add_program(program_name, script_file_path, program_file_path):
@@ -222,6 +222,11 @@ def handle_client(connection_socket, addr):
 
     print(f"[NEW CONNECTION] {addr} connected.")
 
+    lock.acquire()
+    addClient(name_map, authenticated_keys)
+    setStatus(addr[0], "Connected")
+    lock.release()
+
     authenticated = False
     payload = ""
     pin = random.randint(10000, 99999)
@@ -233,6 +238,9 @@ def handle_client(connection_socket, addr):
             print(f"[{addr}] Maximum attempts reached")
             send_message(connection_socket, DISCONNECT_MESSAGE, speck_obj)
             connection_socket.close()
+            lock.acquire()
+            setStatus(addr[0], "Disconnected")
+            lock.release()
             return
 
         (current_payload, payload) = receive_data(connection_socket, payload, speck_obj)
@@ -281,8 +289,6 @@ def handle_client(connection_socket, addr):
         json.dump(name_map, name_file)
         name_file.close()
 
-    clientStatusCallback(name_map, authenticated_keys, connected_clients)
-
     if addr[0] in send_files_set:
         send_message(connection_socket, programs_list, speck_obj)
 
@@ -321,6 +327,10 @@ def handle_client(connection_socket, addr):
         if type == MESSAGE_TYPE:
             if current_payload["data"] == DISCONNECT_MESSAGE:
                 print(f"[{name_map[addr[0]]}] Disconnected")
+                connection_socket.close()
+                lock.acquire()
+                setStatus(addr[0], "Disconnected")
+                lock.release()
                 break
             save_data(current_payload, addr)
             print(f"[{name_map[addr[0]]}] {current_payload['data']}")
@@ -328,14 +338,11 @@ def handle_client(connection_socket, addr):
             file = current_payload["file"]
             payload = save_file(file, payload, connection_socket, speck_obj, addr)
             print(f"[{name_map[addr[0]]}] {file} received")
-    connection_socket.close()
-    connected_clients.remove(addr[0])
-    clientStatusCallback(name_map, authenticated_keys, connected_clients)
 
 
 def _start_():
     """Starts the server"""
-    global server, connected_clients
+    global server
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(ADDR)
@@ -348,13 +355,13 @@ def _start_():
         conn, addr = server.accept()
         thread = threading.Thread(target=handle_client, args=(conn, addr))
         thread.start()
-        connected_clients.add(addr[0])
         # print(f"[ACTIVE CONNECTIONS] {number_of_connected_clients}")
 
 
-def start(clientStatus):
-    global clientStatusCallback
-    clientStatusCallback = clientStatus
+def start(addClientCallback, setStatusCallback):
+    global addClient, setStatus
+    addClient = addClientCallback
+    setStatus = setStatusCallback
     server_thread = threading.Thread(target=_start_)
     server_thread.start()
     return
